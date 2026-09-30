@@ -1,7 +1,8 @@
+import { AssistantMessageComponent as HostAssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { AssistantMessage, ThinkingContent } from "@mariozechner/pi-ai";
-import { Markdown, Spacer, Text } from "@mariozechner/pi-tui";
+import type { AssistantMessage, ThinkingContent } from "@earendil-works/pi-ai";
+import { Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { decrementPatchRefCount, getPatchCleanup, getPatchInstallPromise, incrementPatchRefCount, resolveThinkingMessageScope, setPatchCleanup, setPatchInstallPromise } from "./state.js";
 import { ThinkingStepsComponent } from "./render.js";
 import type { ThinkingSourceBlock, ThinkingThemeLike } from "./types.js";
@@ -105,7 +106,7 @@ function getPackageRoot(packageName: string): string {
 }
 
 export function resolvePiCodingAgentInternalModuleUrl(relativePath: string): string {
-	const packageRoot = getPackageRoot("@mariozechner/pi-coding-agent");
+	const packageRoot = getPackageRoot("@earendil-works/pi-coding-agent");
 	return pathToFileURL(join(packageRoot, relativePath)).href;
 }
 
@@ -114,7 +115,7 @@ export async function importPiCodingAgentInternal<TModule>(relativePath: string)
 	try {
 		return (await import(moduleUrl)) as TModule;
 	} catch (error) {
-		throw new Error(`Thinking Steps patch failed: could not import internal module "@mariozechner/pi-coding-agent/${relativePath}". Pi internals may have moved.`, {
+		throw new Error(`Thinking Steps patch failed: could not import internal module "@earendil-works/pi-coding-agent/${relativePath}". Pi internals may have moved.`, {
 			cause: error,
 		});
 	}
@@ -146,17 +147,15 @@ function hasVisibleThinkingContent(message: AssistantMessage): boolean {
 	return message.content.some((content) => content.type === "thinking" && hasVisibleThinking(content));
 }
 
-async function installPatch(): Promise<() => void> {
-	const [{ AssistantMessageComponent: rawAssistantMessageComponent }, { theme: rawTheme }] = await Promise.all([
-		importPiCodingAgentInternal<{ AssistantMessageComponent: unknown }>(
-			PI_CODING_AGENT_INTERNAL_MODULES.assistantMessageComponent,
-		),
-		importPiCodingAgentInternal<{ theme: unknown }>(
-			PI_CODING_AGENT_INTERNAL_MODULES.theme,
-		),
-	]);
+/** Patch the running host's public component and restore its exact methods on release. */
+async function installPatch(runtimeTheme?: ThinkingThemeLike): Promise<() => void> {
+	// Pi's bundled CLI and its unbundled SDK have distinct module instances.
+	// The public import is mapped by Pi to the running host, unlike file imports.
+	const rawTheme = runtimeTheme ?? (await importPiCodingAgentInternal<{ theme: unknown }>(
+		PI_CODING_AGENT_INTERNAL_MODULES.theme,
+	)).theme;
 
-	const AssistantMessageComponent = assertPatchableAssistantMessageComponent(rawAssistantMessageComponent);
+	const AssistantMessageComponent = assertPatchableAssistantMessageComponent(HostAssistantMessageComponent);
 	const theme = assertThinkingStepsTheme(rawTheme);
 	const prototype = AssistantMessageComponent.prototype;
 	const originalUpdateContent = prototype.updateContent;
@@ -393,12 +392,13 @@ async function installPatch(): Promise<() => void> {
 	};
 }
 
-export async function retainThinkingStepsPatch(): Promise<() => Promise<void>> {
+/** Share one reversible host patch across sessions; use the active UI theme in bundled Pi. */
+export async function retainThinkingStepsPatch(runtimeTheme?: ThinkingThemeLike): Promise<() => Promise<void>> {
 	incrementPatchRefCount();
 	let cleanup = getPatchCleanup();
 	if (!cleanup) {
 		const existingInstallPromise = getPatchInstallPromise();
-		const installPromise = existingInstallPromise ?? installPatch();
+		const installPromise = existingInstallPromise ?? installPatch(runtimeTheme);
 		if (!existingInstallPromise) {
 			setPatchInstallPromise(installPromise);
 		}

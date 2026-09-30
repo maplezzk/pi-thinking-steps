@@ -29,7 +29,7 @@ import {
 } from "../state.js";
 import type { ThinkingThemeLike } from "../types.js";
 import thinkingStepsExtension from "../index.js";
-import { Key } from "@mariozechner/pi-tui";
+import { Key } from "@earendil-works/pi-tui";
 
 function stripAnsi(text: string): string {
 	return text.replace(/\x1b\[[0-9;]*m/g, "");
@@ -318,7 +318,7 @@ describe("patch guards", () => {
 	it("reports a specific compatibility error when an internal module cannot be imported", async () => {
 		await assert.rejects(
 			() => importPiCodingAgentInternal("dist/modes/interactive/missing.js"),
-			/could not import internal module "@mariozechner\/pi-coding-agent\/dist\/modes\/interactive\/missing\.js"/,
+			/could not import internal module "@earendil-works\/pi-coding-agent\/dist\/modes\/interactive\/missing\.js"/,
 		);
 	});
 });
@@ -2892,7 +2892,7 @@ describe("Batch 2 regressions", () => {
 });
 
 describe("repo metadata contracts", () => {
-	it("keeps published files, pinned Pi dependencies, docs, and archived prompts aligned", async () => {
+	it("keeps published files, host peers, and tracked docs aligned", async () => {
 		const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
 			version: string;
 			main: string;
@@ -2900,12 +2900,12 @@ describe("repo metadata contracts", () => {
 			pi?: { extensions?: string[] };
 			scripts: Record<string, string>;
 			license: string;
-			dependencies: Record<string, string>;
+			peerDependencies: Record<string, string>;
 			devDependencies: Record<string, string>;
 		};
 		const packageLock = JSON.parse(await readFile("package-lock.json", "utf8")) as {
 			version: string;
-			packages?: Record<string, { version?: string; dependencies?: Record<string, string>; devDependencies?: Record<string, string> }>;
+			packages?: Record<string, { version?: string; peerDependencies?: Record<string, string>; devDependencies?: Record<string, string> }>;
 		};
 		for (const file of packageJson.files) {
 			await assert.doesNotReject(readFile(file, "utf8"));
@@ -2927,14 +2927,12 @@ describe("repo metadata contracts", () => {
 		assert.match(packageJson.scripts.test, /node --import tsx test\/summarizer-challenger\.test\.ts/);
 		assert.ok(packageJson.scripts.test.indexOf("test/thinking-steps.test.ts") < packageJson.scripts.test.indexOf("test/summarizer-challenger.test.ts"));
 		assert.equal(packageJson.license, "MIT");
-		assert.equal(packageJson.dependencies["@mariozechner/pi-ai"], "0.69.0");
-		assert.equal(packageJson.dependencies["@mariozechner/pi-coding-agent"], "0.69.0");
-		assert.equal(packageJson.dependencies["@mariozechner/pi-tui"], "0.69.0");
-		assert.equal(packageJson.devDependencies["@mariozechner/pi-ai"], undefined);
-		assert.equal(packageJson.devDependencies["@mariozechner/pi-coding-agent"], undefined);
-		assert.equal(packageJson.devDependencies["@mariozechner/pi-tui"], undefined);
-		assert.deepEqual(packageLock.packages?.[""]?.dependencies, packageJson.dependencies);
-		assert.ok(!Object.values(packageJson.dependencies).includes("latest"));
+		assert.deepEqual(packageJson.peerDependencies, {
+			"@earendil-works/pi-ai": "*",
+			"@earendil-works/pi-coding-agent": "*",
+			"@earendil-works/pi-tui": "*",
+		});
+		assert.deepEqual(packageLock.packages?.[""]?.peerDependencies, packageJson.peerDependencies);
 		assert.ok(!Object.values(packageJson.devDependencies).includes("latest"));
 
 		const license = await readFile("LICENSE", "utf8");
@@ -2950,17 +2948,8 @@ describe("repo metadata contracts", () => {
 		assert.ok(readme.includes("`tsconfig.json`"));
 		assert.ok(readme.includes("published validation tests under `test/`"));
 
-		const agents = await readFile("AGENTS.md", "utf8");
-		assert.ok(agents.includes("project clear"));
-		assert.ok(agents.includes("global clear"));
-		assert.ok(agents.includes("session -> project -> global -> summary"));
-		assert.ok(agents.includes(`## Current Version\n${packageJson.version}`));
-		assert.ok(agents.includes("plan.md"));
-		assert.ok(agents.includes("progress.md"));
-		assert.ok(agents.includes("tracked `CHANGELOG.md`"));
-		assert.ok(!agents.includes("currently has **no `CHANGELOG.md`"));
-		assert.ok(!agents.includes("summarization-algorithm.md"));
-
+		// Upstream's untracked AGENTS.md and archived prompts are not shipped.
+		// Validate the tracked package rather than local maintainer-only files.
 		const progress = await readFile("progress.md", "utf8");
 		assert.ok(progress.includes("Non-authoritative placeholder"));
 		assert.ok(progress.includes("Larra sessions"));
@@ -2970,10 +2959,6 @@ describe("repo metadata contracts", () => {
 		assert.ok(plan.includes("completed in `v1.0.10`"));
 		assert.ok(plan.includes("CHANGELOG.md"));
 
-		const leftoverPrompt = await readFile("prompts/fix-leftover-issues_v1-0-0.md", "utf8");
-		assert.ok(leftoverPrompt.includes("planning/"));
-		assert.ok(!leftoverPrompt.includes("plannig/"));
-
 		const typesSource = await readFile("types.ts", "utf8");
 		assert.ok(typesSource.includes("export type PersistedThinkingStepsPreferenceScope"));
 		const persistenceSource = await readFile("persistence.ts", "utf8");
@@ -2982,19 +2967,5 @@ describe("repo metadata contracts", () => {
 		const indexSource = await readFile("index.ts", "utf8");
 		assert.ok(indexSource.includes("import type { PersistedThinkingStepsPreferenceScope, ThinkingStepsMode } from \"./types.js\""));
 
-		const archivedContinuePrompt = await readFile("prompts/continue-2026-04-16.md", "utf8");
-		assert.ok(archivedContinuePrompt.includes("Historical continuation prompt") || archivedContinuePrompt.includes("Archived continue prompt"));
-		assert.ok(archivedContinuePrompt.includes("do **not** treat any git/tag/push/clean-tree statements below as current repo truth"));
-
-		const auditPromptV2 = await readFile("prompts/audit/generalized-deep-audit_v2-0-0.md", "utf8");
-		assert.ok(auditPromptV2.includes("Canonical generalized audit prompt"));
-		assert.ok(auditPromptV2.includes("CHANGELOG.md"));
-		assert.ok(auditPromptV2.includes("plan.md"));
-		assert.ok(auditPromptV2.includes("progress.md"));
-		assert.ok(!auditPromptV2.includes("summarization-algorithm.md"));
-
-		const auditPromptV1 = await readFile("prompts/audit/full-codebase-audit-v1.0.0.md", "utf8");
-		assert.ok(auditPromptV1.includes("Superseded / historical prompt"));
-		assert.ok(auditPromptV1.includes("generalized-deep-audit_v2-0-0.md"));
 	});
 });
